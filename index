@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>우리동네 안심지도 - 관악구 (카카오맵 적용)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 카카오맵 API 로드 -->
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=813478df5f3bb1453679d63a8f78c1f1&libraries=services,clusterer,drawing"></script>
+    <style>
+        /* 사이드바와 지도를 분리하기 위한 스타일 */
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        /* 현재 활성화된 필터 버튼 스타일 */
+        .active-filter {
+            background-color: #2563eb;
+            color: white;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="flex h-screen">
+        <!-- 사이드바: 필터 메뉴 -->
+        <aside class="w-64 bg-white p-6 shadow-lg flex flex-col z-10">
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">우리동네 안심지도</h1>
+            <h2 class="text-lg font-semibold text-blue-600 mb-6">관악구편</h2>
+            <nav class="space-y-3">
+                <button id="filter-disabled" class="w-full text-left p-3 rounded-lg hover:bg-gray-200 transition-colors filter-btn">
+                    <span class="text-lg">♿ 장애인</span>
+                </button>
+                <button id="filter-elderly" class="w-full text-left p-3 rounded-lg hover:bg-gray-200 transition-colors filter-btn">
+                    <span class="text-lg">🧓 독거노인</span>
+                </button>
+                <button id="filter-recipient" class="w-full text-left p-3 rounded-lg hover:bg-gray-200 transition-colors filter-btn">
+                    <span class="text-lg">🏠 기초생활수급자</span>
+                </button>
+            </nav>
+            <div class="mt-auto pt-6 border-t">
+                 <p class="text-sm text-gray-600">
+                    실제 카카오맵 API가 적용된 버전입니다. 이제 실제 데이터를 수집하여 채워주세요.
+                </p>
+            </div>
+        </aside>
+
+        <!-- 메인 콘텐츠: 지도 영역 -->
+        <main class="flex-1">
+            <!-- 지도가 표시될 div 입니다 -->
+            <div id="map"></div>
+        </main>
+    </div>
+
+    <script>
+        // --- 데이터베이스 시뮬레이션 ---
+        // 앞으로 우리가 수집할 실제 데이터로 이 부분을 채워 넣을 겁니다!
+        // 좌표는 실제 관악구 내 임의의 위치로 설정했습니다.
+        const locations = {
+            disabled: [
+                { name: '늘푸른 장애인 복지관', lat: 37.47951, lng: 126.94125 },
+                { name: '희망 재활 센터',       lat: 37.47213, lng: 126.95581 },
+                { name: '장애인 일자리 지원센터', lat: 37.46880, lng: 126.93179 }
+            ],
+            elderly: [
+                { name: '상록수 노인 복지회관', lat: 37.48512, lng: 126.95888 },
+                { name: '효사랑 경로당',       lat: 37.47545, lng: 126.92921 },
+                { name: '시립 노인 전문병원',   lat: 37.46776, lng: 126.96003 }
+            ],
+            recipient: [
+                { name: '관악구청 (주민센터)',  lat: 37.47824, lng: 126.95156 },
+                { name: '행복 나눔 푸드마켓',    lat: 37.48111, lng: 126.92543 }
+            ]
+        };
+        
+        // 보행 위험 구역(Red Zone) 데이터 (폴리곤 좌표 배열)
+        const dangerZonePath = [
+            new kakao.maps.LatLng(37.4760, 126.9420),
+            new kakao.maps.LatLng(37.4775, 126.9460),
+            new kakao.maps.LatLng(37.4750, 126.9480),
+            new kakao.maps.LatLng(37.4735, 126.9440)
+        ];
+
+        // 전역 변수 선언
+        let map;
+        let currentMarkers = [];
+        let currentPolygon = null;
+        let currentInfowindow = null;
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const mapContainer = document.getElementById('map');
+            const mapOption = { 
+                center: new kakao.maps.LatLng(37.4782, 126.9515), // 지도의 중심좌표 (관악구청)
+                level: 5 // 지도의 확대 레벨
+            };
+            
+            map = new kakao.maps.Map(mapContainer, mapOption);
+
+            const filterButtons = document.querySelectorAll('.filter-btn');
+            filterButtons.forEach(button => {
+                const filterType = button.id.replace('filter-', '');
+                button.addEventListener('click', () => displayData(filterType));
+            });
+        });
+        
+        // 지도에 표시된 마커와 폴리곤을 모두 지우는 함수
+        function clearMap() {
+            currentMarkers.forEach(marker => marker.setMap(null));
+            currentMarkers = [];
+            if (currentPolygon) {
+                currentPolygon.setMap(null);
+                currentPolygon = null;
+            }
+            if (currentInfowindow) {
+                currentInfowindow.close();
+                currentInfowindow = null;
+            }
+        }
+        
+        // 데이터를 지도에 표시하는 함수
+        function displayData(filterType) {
+            clearMap();
+
+            const filterBtn = document.getElementById(`filter-${filterType}`);
+            // 이미 활성화된 필터를 다시 누르면 초기화
+            if (filterBtn.classList.contains('active-filter')) {
+                document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active-filter'));
+                return;
+            }
+            
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active-filter'));
+            filterBtn.classList.add('active-filter');
+
+            // 선택된 필터에 맞는 마커 생성
+            locations[filterType].forEach(loc => {
+                const position = new kakao.maps.LatLng(loc.lat, loc.lng);
+                
+                const marker = new kakao.maps.Marker({
+                    map: map,
+                    position: position,
+                    title: loc.name
+                });
+                currentMarkers.push(marker);
+                
+                // 마커에 표시할 인포윈도우 생성
+                const infowindow = new kakao.maps.InfoWindow({
+                    content: `<div style="padding:5px;font-size:12px;">${loc.name}</div>`
+                });
+
+                // 마커에 클릭 이벤트를 등록
+                kakao.maps.event.addListener(marker, 'click', function() {
+                    if (currentInfowindow) currentInfowindow.close();
+                    infowindow.open(map, marker);
+                    currentInfowindow = infowindow;
+                });
+            });
+
+            // '장애인' 필터일 경우, 위험 구역 폴리곤 표시
+            if (filterType === 'disabled') {
+                currentPolygon = new kakao.maps.Polygon({
+                    path: dangerZonePath,
+                    strokeWeight: 3,
+                    strokeColor: '#FF0000',
+                    strokeOpacity: 0.8,
+                    strokeStyle: 'longdash',
+                    fillColor: '#FF0000',
+                    fillOpacity: 0.3
+                });
+                currentPolygon.setMap(map);
+            }
+            
+            // 데이터가 있는 위치로 지도 중심 이동
+            if (locations[filterType].length > 0) {
+                 const firstLocation = locations[filterType][0];
+                 const moveLatLon = new kakao.maps.LatLng(firstLocation.lat, firstLocation.lng);
+                 map.panTo(moveLatLon);
+            }
+        }
+    </script>
+</body>
+</html>
