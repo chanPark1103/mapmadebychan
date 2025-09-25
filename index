@@ -6,7 +6,7 @@
     <title>우리동네 안심지도 - 관악구</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 카카오맵 API 로드 (사용자 키 적용) -->
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=813478df5f3bb1453679d63a8f78c1f1&libraries=services,clusterer,drawing"></script>
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=813478df5f3bb1453679d63a8f78c1f1"></script>
     <style>
         #map {
             width: 100%;
